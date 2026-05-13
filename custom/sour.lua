@@ -1,67 +1,94 @@
-local esp = {}
-
-esp.Settings = {
-    TeamCheck = false,
-    ColorInTeam = Color3.fromRGB(255, 255, 255),
-    EnemyColor = Color3.fromRGB(255, 0, 0)
-}
-
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
 local lp = Players.LocalPlayer
+local camera = workspace.CurrentCamera
 
-local HIGHLIGHT_NAME = "ESP_Highlight"
+-- UI container
+local gui = Instance.new("ScreenGui")
+gui.Name = "OffscreenArrows"
+gui.ResetOnSpawn = false
+gui.Parent = lp:WaitForChild("PlayerGui")
 
--- FIXED: correct parameter = player
-local function getColor(player)
-    if esp.Settings.TeamCheck and lp.Team and player.Team then
-        if player.Team == lp.Team then
-            return esp.Settings.ColorInTeam
-        else
-            return esp.Settings.EnemyColor
-        end
-    end
+local arrows = {}
 
-    return esp.Settings.ColorInTeam
+local function createArrow(player)
+    local img = Instance.new("ImageLabel")
+    img.Name = "Arrow"
+    img.Size = UDim2.fromOffset(24, 24)
+    img.AnchorPoint = Vector2.new(0.5, 0.5)
+    img.BackgroundTransparency = 1
+
+    -- YOUR ASSET
+    img.Image = "rbxassetid://15000587389"
+
+    img.Visible = false
+    img.Parent = gui
+
+    arrows[player] = img
 end
 
-local function addHighlight(player, character)
-    if not character then return end
-
-    local existing = character:FindFirstChild(HIGHLIGHT_NAME)
-    if existing then existing:Destroy() end
-
-    local highlight = Instance.new("Highlight")
-    highlight.Name = HIGHLIGHT_NAME
-
-    highlight.FillColor = getColor(player)
-    highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
-
-    highlight.FillTransparency = 0.55
-    highlight.OutlineTransparency = 0
-    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-
-    highlight.Parent = character
+local function removeArrow(player)
+    if arrows[player] then
+        arrows[player]:Destroy()
+        arrows[player] = nil
+    end
 end
 
 local function trackPlayer(player)
-    local function onCharacterAdded(character)
-        task.wait(0.1)
-        addHighlight(player, character)
-    end
-
-    player.CharacterAdded:Connect(onCharacterAdded)
-
-    if player.Character then
-        onCharacterAdded(player.Character)
-    end
+    createArrow(player)
 end
 
 -- existing players
-for _, player in ipairs(Players:GetPlayers()) do
-    trackPlayer(player)
+for _, p in ipairs(Players:GetPlayers()) do
+    if p ~= lp then
+        trackPlayer(p)
+    end
 end
 
 -- new players
-Players.PlayerAdded:Connect(trackPlayer)
+Players.PlayerAdded:Connect(function(p)
+    if p ~= lp then
+        trackPlayer(p)
+    end
+end)
 
-return esp
+Players.PlayerRemoving:Connect(removeArrow)
+
+-- update loop (single, optimized)
+RunService.RenderStepped:Connect(function()
+    local screenCenter = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2)
+
+    for player, arrow in pairs(arrows) do
+        local char = player.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+
+        if hrp then
+            local pos, onScreen = camera:WorldToViewportPoint(hrp.Position)
+
+            if not onScreen then
+                arrow.Visible = true
+
+                local dir = (Vector2.new(pos.X, pos.Y) - screenCenter)
+                if dir.Magnitude > 0 then
+                    dir = dir.Unit
+                end
+
+                local angle = math.deg(math.atan2(dir.Y, dir.X))
+
+                -- position arrow near screen edge
+                local distanceFromCenter = 180
+                arrow.Position = UDim2.fromOffset(
+                    screenCenter.X + dir.X * distanceFromCenter,
+                    screenCenter.Y + dir.Y * distanceFromCenter
+                )
+
+                arrow.Rotation = angle + 90
+            else
+                arrow.Visible = false
+            end
+        else
+            arrow.Visible = false
+        end
+    end
+end)
